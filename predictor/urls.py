@@ -1,7 +1,9 @@
 from django.urls import path
 from . import views
 
+app_name = "predictor"
+
 urlpatterns = [
-    path('', views.predict_view, name='predict'),
-    path('login/', views.login_view, name='login'),
+    path("", views.login_view, name="login"),
+    path("predict/", views.predict_view, name="predict"),
 ]
