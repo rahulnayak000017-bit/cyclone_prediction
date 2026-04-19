@@ -1,0 +1,1 @@
+web: gunicorn cyclone_prediction.wsgi:application

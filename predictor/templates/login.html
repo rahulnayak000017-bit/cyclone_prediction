@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign in</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f1f3f4;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .login-card {
+            background: #fff;
+            width: 100%;
+            max-width: 400px;
+            padding: 40px;
+            border-radius: 12px;
+            border: 1px solid #dadce0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            color: #202124;
+        }
+
+        .subtitle {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #5f6368;
+        }
+
+        .error {
+            color: #d93025;
+            font-size: 14px;
+            margin-bottom: 15px;
+            text-align: center;
+            background: #fce8e6;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #f4c7c3;
+        }
+
+        form p {
+            margin: 0;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 15px;
+            border: 1px solid #dadce0;
+            border-radius: 6px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #1a73e8;
+            box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.2);
+        }
+
+        button[type="submit"] {
+            width: 100%;
+            padding: 12px;
+            background: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button[type="submit"]:hover {
+            background: #1557b0;
+        }
+
+        .extra {
+            margin-top: 10px;
+            font-size: 14px;
+            text-align: right;
+        }
+
+        .extra a {
+            color: #1a73e8;
+            text-decoration: none;
+        }
+
+        .extra a:hover {
+            text-decoration: underline;
+        }
+
+        .signup-link {
+            margin-top: 20px;
+            font-size: 14px;
+            text-align: center;
+            color: #3c4043;
+        }
+
+        .signup-link a {
+            color: #1a73e8;
+            text-decoration: none;
+        }
+
+        .signup-link a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 480px) {
+            .login-card {
+                margin: 20px;
+                padding: 30px 20px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="login-card">
+
+        <h1>Sign in</h1>
+        <p class="subtitle">Use your account</p>
+
+        <form method="post">
+            {% csrf_token %}
+
+            <!-- Django login error handling -->
+            {% if form.errors %}
+            <div class="error">
+                Invalid username or password. Please try again.
+            </div>
+            {% endif %}
+
+            <!-- Django form fields -->
+            {{ form.username }}
+            {{ form.password }}
+
+            <div class="extra">
+                <a href="{% url 'password_reset' %}">Forgot password?</a>
+            </div>
+
+            <button type="submit">Sign in</button>
+
+            <div class="signup-link">
+                Don't have an account?
+                <a href="/accounts/signup/">Sign up</a>
+            </div>
+
+        </form>
+
+    </div>
+
+</body>
+</html>

@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tropical Cyclone Dashboard</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.23.9/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://unpkg.com/leaflet-image@0.4.0/leaflet-image.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            overflow-x: hidden;
+            min-height: 100vh;
+            position: relative;
+            transition: background 0.5s ease;
+        }
+
+        .day-theme {
+            background: linear-gradient(135deg, #87CEEB, #E0FFFF, #B0E0E6);
+            color: #1E3A8A;
+        }
+
+        .night-theme {
+            background: #0A0E1A;
+            color: #E2E8F0;
+        }
+
+        .cyclone-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
+        }
+
+        .cyclone-bg::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(20, 30, 50, 0.3), rgba(10, 17, 31, 0.5));
+            opacity: 0.4;
+            animation: cloud-drift 40s infinite linear;
+            z-index: 1;
+        }
+
+        @keyframes cloud-drift {
+            0% { transform: translateX(-5%) translateY(-5%); }
+            50% { transform: translateX(5%) translateY(5%); }
+            100% { transform: translateX(-5%) translateY(-5%); }
+        }
+
+        #cyclone-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+        }
+
+        .bg-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 3;
+            pointer-events: none;
+            background: radial-gradient(circle at 50% 50%, rgba(0, 10, 20, 0.2), transparent 80%);
+            animation: cloud-pulse 20s infinite ease-in-out;
+        }
+
+        @keyframes cloud-pulse {
+            0% { opacity: 0.2; transform: scale(1); }
+            50% { opacity: 0.3; transform: scale(1.03); }
+            100% { opacity: 0.2; transform: scale(1); }
+        }
+
+        .dashboard-frame {
+            display: flex;
+            flex-direction: row;
+            gap: 2rem;
+            overflow-x: auto;
+            padding: 2rem;
+            scroll-snap-type: x mandatory;
+        }
+
+        .panel {
+            flex: 0 0 auto;
+            width: 100%;
+            max-width: 450px;
+            scroll-snap-align: start;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .panel:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        @media (min-width: 1024px) {
+            .dashboard-frame {
+                flex-wrap: nowrap;
+                overflow-x: visible;
+                justify-content: center;
+            }
+            .panel {
+                width: 33%;
+                max-width: 500px;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .panel {
+                max-width: 100%;
+            }
+        }
+
+        #map {
+            height: 550px;
+            border-radius: 1.5rem;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+            transition: box-shadow 0.3s ease;
+        }
+
+        #map:hover {
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.5);
+        }
+
+        @media (max-width: 1024px) {
+            #map {
+                height: 450px;
+            }
+        }
+
+        @media (max-width: 640px) {
+            #map {
+                height: 350px;
+            }
+        }
+
+        .input-container {
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .input-container:hover {
+            transform: scale(1.02);
+        }
+
+        .input-container input {
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .input-container:hover input {
+            border-color: #F472B6;
+            box-shadow: 0 0 8px rgba(244, 114, 182, 0.5);
+        }
+
+        .day-theme .panel {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(12px);
+        }
+
+        .night-theme .panel {
+            background: rgba(15, 25, 45, 0.85);
+            backdrop-filter: blur(12px);
+        }
+
+        .theme-toggle {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body className="night-theme">
+    <div class="cyclone-bg">
+        <canvas id="cyclone-canvas"></canvas>
+        <div class="bg-overlay"></div>
+    </div>
+
+    <div id="root"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        function initCycloneBackground(theme) {
+            const canvas = document.getElementById('cyclone-canvas');
+            if (!canvas || !canvas.getContext) {
+                console.warn('Canvas not supported or not found.');
+                return;
+            }
+            const ctx = canvas.getContext('2d');
+            let w, h;
+
+            const resizeCanvas = () => {
+                w = canvas.width = window.innerWidth;
+                h = canvas.height = window.innerHeight;
+            };
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+
+            const clouds = [];
+            const numClouds = 6;
+            const rainDrops = [];
+            const maxRainDrops = 30; // Fewer drops for a subtle effect
+
+            class Cloud {
+                constructor() {
+                    this.x = Math.random() * w;
+                    this.y = Math.random() * h * 0.6;
+                    this.width = 120 + Math.random() * 100;
+                    this.height = 60 + Math.random() * 50;
+                    this.vx = (Math.random() - 0.5) * 0.8;
+                    this.vy = (Math.random() - 0.5) * 0.4;
+                    this.alpha = 0.3 + Math.random() * 0.2;
+                    this.scale = 1;
+                    this.scaleSpeed = (Math.random() - 0.5) * 0.002;
+                }
+
+                update() {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    this.scale += this.scaleSpeed;
+                    if (this.scale > 1.05 || this.scale < 0.95) this.scaleSpeed *= -1;
+                    if (this.x - this.width > w) this.x = -this.width;
+                    if (this.x + this.width < 0) this.x = w + this.width;
+                    if (this.y - this.height > h * 0.6) this.y = -this.height;
+                    if (this.y + this.height < 0) this.y = h * 0.6 + this.height;
+                }
+
+                draw() {
+                    ctx.save();
+                    ctx.translate(this.x, this.y);
+                    ctx.scale(this.scale, this.scale * 0.7);
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, this.width, this.height, 0, 0, Math.PI * 2);
+                    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, this.width);
+                    gradient.addColorStop(0, `rgba(${theme === 'night' ? '60, 70, 90' : '200, 210, 220'}, ${this.alpha})`);
+                    gradient.addColorStop(1, `rgba(${theme === 'night' ? '30, 40, 60' : '150, 160, 170'}, 0)`);
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                    ctx.restore();
+                }
+            }
+
+            class RainDrop {
+                constructor() {
+                    this.x = Math.random() * w;
+                    this.y = -10;
+                    this.vy = 2 + Math.random() * 2; // Slow falling speed
+                    this.length = 8 + Math.random() * 4;
+                    this.alpha = 0.5 + Math.random() * 0.3;
+                }
+
+                update() {
+                    this.y += this.vy;
+                    this.alpha -= 0.005; // Gentle fade
+                    if (this.y > h || this.alpha <= 0) {
+                        this.x = Math.random() * w;
+                        this.y = -10;
+                        this.vy = 2 + Math.random() * 2;
+                        this.alpha = 0.5 + Math.random() * 0.3;
+                    }
+                }
+
+                draw() {
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.x, this.y + this.length);
+                    ctx.strokeStyle = `rgba(${theme === 'night' ? '180, 200, 220' : '30, 58, 138'}, ${this.alpha})`;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+            }
+
+            for (let i = 0; i < numClouds; i++) {
+                clouds.push(new Cloud());
+            }
+
+            for (let i = 0; i < maxRainDrops; i++) {
+                rainDrops.push(new RainDrop());
+            }
+
+            function animate() {
+                ctx.clearRect(0, 0, w, h);
+                clouds.forEach(cloud => {
+                    cloud.update();
+                    cloud.draw();
+                });
+                rainDrops.forEach(drop => {
+                    drop.update();
+                    drop.draw();
+                });
+                requestAnimationFrame(animate);
+            }
+
+            animate();
+        }
+
+        const CycloneDashboard = () => {
+            const [inputs, setInputs] = useState({
+                international_number_id: '',
+                tropical_cyclone_number: '',
+                tropical_cyclone_end_record: '',
+                number_of_hours: '',
+                grade: '',
+                latitude: '',
+                longitude: '',
+                minimum_central_pressure: ''
+            });
+            const [error, setError] = useState('');
+            const [prediction, setPrediction] = useState('');
+            const [predictionMetrics, setPredictionMetrics] = useState(null);
+            const [riskLevel, setRiskLevel] = useState('LOW');
+            const [history, setHistory] = useState(JSON.parse(localStorage.getItem('cyclonePredictions') || '[]'));
+            const [theme, setTheme] = useState('night');
+            const [isAdminMode, setIsAdminMode] = useState(false);
+            const [fallbackMessage, setFallbackMessage] = useState('');
+            const [lastUpdated, setLastUpdated] = useState('Not yet simulated');
+            const [damageReport, setDamageReport] = useState({ location: '', description: '' });
+            const [damageReportMessage, setDamageReportMessage] = useState('');
+            const [chatInput, setChatInput] = useState('');
+            const [chatLoading, setChatLoading] = useState(false);
+            const [chatMessages, setChatMessages] = useState([
+                { sender: 'assistant', text: 'Ask about flood safety, shelters, or crop precautions.' }
+            ]);
+            const mapRef = useRef(null);
+            const mapInstanceRef = useRef(null);
+            const windSpeedChartRef = useRef(null);
+            const pressureChartRef = useRef(null);
+            const markersRef = useRef([]);
+            const shelterMarkersRef = useRef([]);
+            const polylineRef = useRef(null);
+            const animationIntervalRef = useRef(null);
+            const [mapLayer, setMapLayer] = useState('street');
+            const [coords, setCoords] = useState('Center: 0, 0');
+            const [pathDistance, setPathDistance] = useState('Total Path Distance: 0 km');
+            const [cycloneInfo, setCycloneInfo] = useState({ display: false, windSpeed: 'N/A', pressure: 'N/A', grade: 'N/A', location: 'N/A' });
+            const shelters = [
+                { name: 'Shelter A', city: 'Chennai', lat: 13.0827, lon: 80.2707, capacity: 120 },
+                { name: 'Shelter B', city: 'Visakhapatnam', lat: 17.6868, lon: 83.2185, capacity: 95 },
+                { name: 'Shelter C', city: 'Kolkata', lat: 22.5726, lon: 88.3639, capacity: 150 }
+            ];
+            const disasterHistoryData = [
+                { event: 'Cyclone Yaas', date: 'May 26, 2021', impact: 'Coastal flooding and evacuations' },
+                { event: 'Cyclone Amphan', date: 'May 20, 2020', impact: 'Severe wind damage and power loss' },
+                { event: 'Kerala Floods', date: 'August 16, 2018', impact: 'Major inland flooding and landslides' }
+            ];
+
+            const formatPredictionMessage = (metrics) => (
+                `Predicted Wind Speed: ${metrics.prediction.toFixed(1)} knots | Flood Level: ${metrics.floodLevel.toFixed(1)} | Confidence: ${metrics.confidence.toFixed(1)}%`
+            );
+
+            const getRiskLevel = (metrics) => {
+                if (!metrics) return 'LOW';
+                if (metrics.floodLevel >= 6 || metrics.prediction >= 90 || metrics.confidence >= 85) return 'HIGH';
+                if (metrics.floodLevel >= 3 || metrics.prediction >= 60) return 'MEDIUM';
+                return 'LOW';
+            };
+
+            const getRiskClass = (level) => {
+                if (level === 'HIGH') return theme === 'night' ? 'text-red-400' : 'text-red-600';
+                if (level === 'MEDIUM') return theme === 'night' ? 'text-yellow-300' : 'text-yellow-600';
+                return theme === 'night' ? 'text-green-400' : 'text-green-600';
+            };
+
+            const getRiskMapColor = (level) => {
+                if (level === 'HIGH') return '#ef4444';
+                if (level === 'MEDIUM') return '#facc15';
+                return '#22c55e';
+            };
+
+            const getCsrfToken = () => {
+                const cookieValue = document.cookie
+                    .split('; ')
+                    .find(row => row.startsWith('csrftoken='));
+                return cookieValue ? cookieValue.split('=')[1] : '';
+            };
+
+            const getFarmerAdvisory = (level) => {
+                if (level === 'HIGH') return 'Move livestock to higher ground, protect seeds, and avoid low-lying fields.';
+                if (level === 'MEDIUM') return 'Inspect drainage, secure equipment, and prepare crop covers for heavy rain.';
+                return 'Normal monitoring is enough, but keep emergency supplies and irrigation channels ready.';
+            };
+
+            const getChatReply = async (message) => {
+                const response = await fetch('/predict/api/chat/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCsrfToken()
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ message })
+                });
+
+                const data = await response.json();
+                return data.response || '⚠️ AI assistant is temporarily unavailable. Please try again later.';
+            };
+
+            const renderShelterMarkers = () => {
+                if (!mapInstanceRef.current || typeof L === 'undefined') {
+                    return;
+                }
+
+                shelterMarkersRef.current.forEach(marker => mapInstanceRef.current.removeLayer(marker));
+                shelterMarkersRef.current = shelters.map(shelter => {
+                    const marker = L.circleMarker([shelter.lat, shelter.lon], {
+                        radius: 7,
+                        color: '#22c55e',
+                        weight: 2,
+                        fillColor: '#86efac',
+                        fillOpacity: 0.9
+                    }).addTo(mapInstanceRef.current);
+                    marker.bindPopup(`<b>${shelter.name}</b><br>City: ${shelter.city}<br>Capacity: ${shelter.capacity}`);
+                    return marker;
+                });
+            };
+
+            const hasValidInputs = () => Object.values(inputs).every(value => value !== '' && !Number.isNaN(Number.parseFloat(value)));
+
+            useEffect(() => {
+                document.body.className = theme === 'night' ? 'night-theme' : 'day-theme';
+                initCycloneBackground(theme);
+
+                if (!mapInstanceRef.current) {
+                    mapInstanceRef.current = L.map(mapRef.current, { zoomControl: true }).setView([0, 0], 2);
+                    L.control.scale().addTo(mapInstanceRef.current);
+                    changeMapLayer(mapLayer);
+                    renderShelterMarkers();
+                    mapInstanceRef.current.on('move', () => {
+                        const center = mapInstanceRef.current.getCenter();
+                        setCoords(`Center: ${center.lat.toFixed(2)}, ${center.lng.toFixed(2)}`);
+                    });
+                }
+                loadHistory();
+                initializeCharts();
+
+                const inputsList = [
+                    'international_number_id', 'tropical_cyclone_number', 'tropical_cyclone_end_record',
+                    'number_of_hours', 'grade', 'latitude', 'longitude', 'minimum_central_pressure'
+                ];
+                inputsList.forEach((id, index) => {
+                    const input = document.getElementById(id);
+                    if (input) {
+                        input.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                if (index < inputsList.length - 1) {
+                                    const nextInput = document.getElementById(inputsList[index + 1]);
+                                    if (nextInput) nextInput.focus();
+                                } else {
+                                    predict();
+                                }
+                            }
+                        });
+                    }
+                });
+
+                return () => {
+                    if (animationIntervalRef.current) clearInterval(animationIntervalRef.current);
+                };
+            }, [theme]);
+
+            useEffect(() => {
+                if (!hasValidInputs()) {
+                    return undefined;
+                }
+
+                const simulationTimer = setInterval(() => {
+                    predict(true);
+                }, 12000);
+
+                return () => clearInterval(simulationTimer);
+            }, [inputs]);
+
+            const toggleTheme = () => {
+                setTheme(theme === 'night' ? 'day' : 'night');
+            };
+
+            const changeMapLayer = (layer) => {
+                const map = mapInstanceRef.current;
+                if (!map) return;
+                let tileLayerExists = false;
+                map.eachLayer(layer => {
+                    if (layer instanceof L.TileLayer) {
+                        tileLayerExists = true;
+                        map.removeLayer(layer);
+                    }
+                });
+
+                if (mapLayer === layer && tileLayerExists) {
+                    shelterMarkersRef.current.forEach(marker => marker.addTo(map));
+                    return;
+                }
+
+                if (layer === 'street') {
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+                } else if (layer === 'satellite') {
+                    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '© Esri' }).addTo(map);
+                } else if (layer === 'terrain') {
+                    L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: '© OpenTopoMap' }).addTo(map);
+                }
+
+                setMapLayer(layer);
+                markersRef.current.forEach(marker => marker.addTo(map));
+                shelterMarkersRef.current.forEach(marker => marker.addTo(map));
+                if (polylineRef.current) polylineRef.current.addTo(map);
+            };
+
+            const zoomToLatestCyclone = () => {
+                if (markersRef.current.length > 0) {
+                    const latestMarker = markersRef.current[markersRef.current.length - 1];
+                    mapInstanceRef.current.setView(latestMarker.getLatLng(), 5);
+                }
+            };
+
+            const animateCyclonePath = () => {
+                if (animationIntervalRef.current) {
+                    clearInterval(animationIntervalRef.current);
+                    animationIntervalRef.current = null;
+                    const animateButton = document.querySelector('button[onClick="animateCyclonePath()"]');
+                    if (animateButton) animateButton.textContent = 'Animate Path';
+                    markersRef.current.forEach(marker => marker.addTo(mapInstanceRef.current));
+                    if (polylineRef.current) polylineRef.current.addTo(mapInstanceRef.current);
+                    return;
+                }
+
+                if (markersRef.current.length < 2) {
+                    alert('At least two cyclone points are needed to animate the path.');
+                    return;
+                }
+
+                const animateButton = document.querySelector('button[onClick="animateCyclonePath()"]');
+                if (animateButton) animateButton.textContent = 'Stop Animation';
+                markersRef.current.forEach(marker => mapInstanceRef.current.removeLayer(marker));
+                if (polylineRef.current) mapInstanceRef.current.removeLayer(polylineRef.current);
+
+                let index = 0;
+                const animate = () => {
+                    if (index >= markersRef.current.length) index = 0;
+                    const marker = markersRef.current[index];
+                    mapInstanceRef.current.setView(marker.getLatLng(), 5);
+                    const tempMarker = L.marker(marker.getLatLng()).addTo(mapInstanceRef.current)
+                        .bindPopup(marker.getPopup().getContent()).openPopup();
+                    setTimeout(() => mapInstanceRef.current.removeLayer(tempMarker), 1000);
+                    index++;
+                };
+
+                animate();
+                animationIntervalRef.current = setInterval(animate, 1500);
+            };
+
+            const calculatePathDistance = () => {
+                let totalDistance = 0;
+                for (let i = 1; i < markersRef.current.length; i++) {
+                    totalDistance += markersRef.current[i-1].getLatLng().distanceTo(markersRef.current[i].getLatLng()) / 1000;
+                }
+                setPathDistance(`Total Path Distance: ${totalDistance.toFixed(2)} km`);
+            };
+
+            const initializeCharts = () => {
+                if (windSpeedChartRef.current) windSpeedChartRef.current.destroy();
+                if (pressureChartRef.current) pressureChartRef.current.destroy();
+
+                const labels = history.map((_, index) => `Prediction ${index + 1}`);
+                const windSpeeds = history.map(entry => entry.predictedWindSpeed);
+                const pressures = history.map(entry => entry.minimum_central_pressure);
+                const chartColors = theme === 'night' ? {
+                    borderColor: '#5EEAD4',
+                    backgroundColor: 'rgba(94, 234, 212, 0.2)',
+                    textColor: '#E2E8F0'
+                } : {
+                    borderColor: '#1E3A8A',
+                    backgroundColor: 'rgba(30, 58, 138, 0.2)',
+                    textColor: '#1E3A8A'
+                };
+
+                windSpeedChartRef.current = new Chart(document.getElementById('windSpeedChart'), {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Wind Speed (knots)',
+                            data: windSpeeds,
+                            borderColor: chartColors.borderColor,
+                            backgroundColor: chartColors.backgroundColor,
+                            fill: true,
+                            tension: 0.4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { tooltip: { enabled: true }, legend: { display: true, labels: { color: chartColors.textColor } } },
+                        scales: {
+                            y: { beginAtZero: true, title: { display: true, text: 'Wind Speed (knots)', color: chartColors.textColor }, ticks: { color: chartColors.textColor } },
+                            x: { title: { display: true, text: 'Prediction', color: chartColors.textColor }, ticks: { color: chartColors.textColor } }
+                        }
+                    }
+                });
+
+                pressureChartRef.current = new Chart(document.getElementById('pressureChart'), {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Minimum Central Pressure (hPa)',
+                            data: pressures,
+                            backgroundColor: chartColors.backgroundColor.replace('0.2', '0.6'),
+                            borderColor: chartColors.borderColor,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { tooltip: { enabled: true }, legend: { display: true, labels: { color: chartColors.textColor } } },
+                        scales: {
+                            y: { beginAtZero: true, title: { display: true, text: 'Pressure (hPa)', color: chartColors.textColor }, ticks: { color: chartColors.textColor } },
+                            x: { title: { display: true, text: 'Prediction', color: chartColors.textColor }, ticks: { color: chartColors.textColor } }
+                        }
+                    }
+                });
+            };
+
+            const updateMap = (lat, lon, entry) => {
+                if (!mapInstanceRef.current || typeof L === 'undefined') {
+                    return;
+                }
+
+                const riskColor = getRiskMapColor(entry.riskLevel || getRiskLevel(entry));
+                const marker = L.circleMarker([lat, lon], {
+                    radius: 10,
+                    color: riskColor,
+                    weight: 2,
+                    fillColor: riskColor,
+                    fillOpacity: 0.85
+                }).addTo(mapInstanceRef.current)
+                    .bindPopup(`
+                        <b>Cyclone Prediction</b><br>
+                        Risk Level: ${entry.riskLevel || getRiskLevel(entry)}<br>
+                        Wind Speed: ${entry.predictedWindSpeed} knots<br>
+                        Flood Level: ${(entry.floodLevel ?? 0).toFixed ? entry.floodLevel.toFixed(1) : entry.floodLevel ?? 'N/A'}<br>
+                        Confidence: ${(entry.confidence ?? 0).toFixed ? entry.confidence.toFixed(1) : entry.confidence ?? 'N/A'}%<br>
+                        Pressure: ${entry.minimum_central_pressure} hPa<br>
+                        Grade: ${entry.grade}<br>
+                        Location: ${lat}, ${lon}
+                    `);
+                marker.on('click', () => {
+                    setCycloneInfo({
+                        display: true,
+                        windSpeed: `${entry.predictedWindSpeed} knots`,
+                        pressure: `${entry.minimum_central_pressure} hPa`,
+                        grade: `${entry.grade}`,
+                        location: `${lat}, ${lon}`
+                    });
+                });
+                markersRef.current.push(marker);
+                mapInstanceRef.current.setView([lat, lon], 5);
+
+                if (polylineRef.current) mapInstanceRef.current.removeLayer(polylineRef.current);
+                const latlngs = markersRef.current.map(m => m.getLatLng());
+                polylineRef.current = L.polyline(latlngs, { color: riskColor, weight: 3 }).addTo(mapInstanceRef.current);
+                calculatePathDistance();
+            };
+
+            const loadHistory = () => {
+                const historyData = JSON.parse(localStorage.getItem('cyclonePredictions') || '[]');
+                setHistory(historyData);
+                markersRef.current.forEach(marker => mapInstanceRef.current.removeLayer(marker));
+                markersRef.current = [];
+                if (polylineRef.current) mapInstanceRef.current.removeLayer(polylineRef.current);
+                polylineRef.current = null;
+
+                historyData.forEach(entry => updateMap(entry.latitude, entry.longitude, entry));
+                if (historyData.length > 0) {
+                    setRiskLevel(historyData[historyData.length - 1].riskLevel || 'LOW');
+                    setLastUpdated('Recovered from saved history');
+                } else {
+                    setRiskLevel('LOW');
+                    setLastUpdated('Not yet simulated');
+                }
+                initializeCharts();
+                calculatePathDistance();
+            };
+
+            const resetAll = () => {
+                setInputs({
+                    international_number_id: '',
+                    tropical_cyclone_number: '',
+                    tropical_cyclone_end_record: '',
+                    number_of_hours: '',
+                    grade: '',
+                    latitude: '',
+                    longitude: '',
+                    minimum_central_pressure: ''
+                });
+                setError('');
+                setPrediction('');
+                setPredictionMetrics(null);
+                setRiskLevel('LOW');
+                setFallbackMessage('');
+                setLastUpdated('Not yet simulated');
+                setDamageReport({ location: '', description: '' });
+                setDamageReportMessage('');
+                setChatInput('');
+                setChatMessages([{ sender: 'assistant', text: 'Ask about flood safety, shelters, or crop precautions.' }]);
+                setCycloneInfo({ display: false, windSpeed: 'N/A', pressure: 'N/A', grade: 'N/A', location: 'N/A' });
+                markersRef.current.forEach(marker => mapInstanceRef.current.removeLayer(marker));
+                markersRef.current = [];
+                if (polylineRef.current) mapInstanceRef.current.removeLayer(polylineRef.current);
+                polylineRef.current = null;
+                mapInstanceRef.current.setView([0, 0], 2);
+                setCoords('Center: 0, 0');
+                setPathDistance('Total Path Distance: 0 km');
+                if (animationIntervalRef.current) {
+                    clearInterval(animationIntervalRef.current);
+                    animationIntervalRef.current = null;
+                    const animateButton = document.querySelector('button[onClick="animateCyclonePath()"]');
+                    if (animateButton) animateButton.textContent = 'Animate Path';
+                }
+                localStorage.removeItem('cyclonePredictions');
+                setHistory([]);
+                initializeCharts();
+            };
+
+            const predictWindSpeed = (inputs) => {
+                const windSpeed = (1000 / inputs.minimum_central_pressure) * inputs.grade * 10;
+                return Math.round(windSpeed * 10) / 10;
+            };
+
+            const callPredictionApi = async (parsedInputs) => {
+                const response = await fetch('/predict/api/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCsrfToken()
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify(parsedInputs)
+                });
+
+                if (!response.ok) {
+                    throw new Error('Prediction request failed.');
+                }
+
+                return response.json();
+            };
+
+            const predict = async (isSimulationRun = false) => {
+                const parsedInputs = {};
+                for (let key in inputs) {
+                    parsedInputs[key] = parseFloat(inputs[key]);
+                    if (isNaN(parsedInputs[key])) {
+                        setError('Please fill all fields with valid numbers.');
+                        setPrediction('');
+                        setPredictionMetrics(null);
+                        setFallbackMessage('');
+                        return;
+                    }
+                }
+                if (parsedInputs.latitude < -90 || parsedInputs.latitude > 90) {
+                    setError('Latitude must be between -90 and 90.');
+                    setPrediction('');
+                    setPredictionMetrics(null);
+                    setFallbackMessage('');
+                    return;
+                }
+                if (parsedInputs.longitude < -180 || parsedInputs.longitude > 180) {
+                    setError('Longitude must be between -180 and 180.');
+                    setPrediction('');
+                    setPredictionMetrics(null);
+                    setFallbackMessage('');
+                    return;
+                }
+                if (parsedInputs.minimum_central_pressure <= 0) {
+                    setError('Minimum central pressure must be positive.');
+                    setPrediction('');
+                    setPredictionMetrics(null);
+                    setFallbackMessage('');
+                    return;
+                }
+
+                let metrics;
+                try {
+                    metrics = await callPredictionApi(parsedInputs);
+                    setError('');
+                    setFallbackMessage('');
+                } catch (apiError) {
+                    const fallbackPrediction = predictWindSpeed(parsedInputs);
+                    metrics = {
+                        floodLevel: Math.max(0.5, (fallbackPrediction / 25) + (parsedInputs.grade * 0.35)),
+                        prediction: fallbackPrediction,
+                        confidence: 60.0
+                    };
+                    setError('Live AI prediction is unavailable. Showing local estimate.');
+                    setFallbackMessage('Offline fallback prediction is active. Results are estimated locally.');
+                }
+
+                const historyEntry = {
+                    ...parsedInputs,
+                    predictedWindSpeed: metrics.prediction,
+                    floodLevel: metrics.floodLevel,
+                    confidence: metrics.confidence,
+                    riskLevel: getRiskLevel(metrics)
+                };
+
+                setPredictionMetrics(metrics);
+                setRiskLevel(historyEntry.riskLevel);
+                setPrediction(formatPredictionMessage(metrics));
+                setLastUpdated(`${isSimulationRun ? 'Simulation' : 'Manual'} update at ${new Date().toLocaleTimeString()}`);
+                const newHistory = [...history, historyEntry];
+                setHistory(newHistory);
+                localStorage.setItem('cyclonePredictions', JSON.stringify(newHistory));
+                updateMap(parsedInputs.latitude, parsedInputs.longitude, historyEntry);
+                initializeCharts();
+            };
+
+            const submitDamageReport = () => {
+                if (!damageReport.location.trim() || !damageReport.description.trim()) {
+                    setDamageReportMessage('Enter both location and description before submitting.');
+                    return;
+                }
+
+                setDamageReportMessage(`Damage report captured for ${damageReport.location.trim()}.`);
+                setDamageReport({ location: '', description: '' });
+            };
+
+            const sendChatMessage = async () => {
+                if (!chatInput.trim()) {
+                    return;
+                }
+
+                const userMessage = chatInput.trim();
+                setChatMessages(currentMessages => [
+                    ...currentMessages,
+                    { sender: 'user', text: userMessage }
+                ]);
+                setChatInput('');
+                setChatLoading(true);
+                try {
+                    const assistantReply = await getChatReply(userMessage);
+                    setChatMessages(currentMessages => [
+                        ...currentMessages,
+                        { sender: 'assistant', text: assistantReply }
+                    ]);
+                } catch (error) {
+                    setChatMessages(currentMessages => [
+                        ...currentMessages,
+                        { sender: 'assistant', text: '⚠️ AI assistant is temporarily unavailable. Please try again later.' }
+                    ]);
+                } finally {
+                    setChatLoading(false);
+                }
+            };
+
+            const downloadReport = async () => {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                if (history.length === 0) {
+                    alert('No predictions available to generate a report.');
+                    return;
+                }
+
+                try {
+                    doc.setFontSize(20);
+                    doc.text('Tropical Cyclone Prediction Report', 105, 20, { align: 'center' });
+                    doc.setFontSize(12);
+                    const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+                    doc.text(`Generated on: ${date}`, 105, 30, { align: 'center' });
+
+                    doc.setFontSize(14);
+                    doc.text('Prediction Summary', 20, 50);
+                    doc.setFontSize(10);
+                    const headers = ['#', 'Wind Speed (knots)', 'Pressure (hPa)', 'Grade', 'Latitude', 'Longitude'];
+                    const data = history.map((entry, index) => [
+                        index + 1,
+                        entry.predictedWindSpeed.toFixed(1),
+                        entry.minimum_central_pressure.toFixed(1),
+                        entry.grade.toFixed(1),
+                        entry.latitude.toFixed(2),
+                        entry.longitude.toFixed(2)
+                    ]);
+                    doc.autoTable({
+                        startY: 55,
+                        head: [headers],
+                        body: data,
+                        theme: 'grid',
+                        headStyles: { fillColor: theme === 'night' ? [94, 234, 212] : [30, 58, 138], textColor: [255, 255, 255] },
+                        styles: { fontSize: 8, cellPadding: 2 },
+                        margin: { left: 20, right: 20 }
+                    });
+
+                    let yPos = doc.lastAutoTable.finalY + 10;
+                    if (yPos > 250) { doc.addPage(); yPos = 20; }
+                    doc.setFontSize(14);
+                    doc.text('Wind Speed Trend', 20, yPos);
+                    try {
+                        const windSpeedImg = document.getElementById('windSpeedChart').toDataURL('image/png');
+                        doc.addImage(windSpeedImg, 'PNG', 20, yPos + 5, 170, 80);
+                        yPos += 95;
+                    } catch (e) {
+                        doc.setFontSize(10);
+                        doc.text('Wind Speed chart could not be included.', 20, yPos + 15);
+                        yPos += 25;
+                    }
+
+                    if (yPos > 250) { doc.addPage(); yPos = 20; }
+                    doc.setFontSize(14);
+                    doc.text('Pressure Comparison', 20, yPos);
+                    try {
+                        const pressureImg = document.getElementById('pressureChart').toDataURL('image/png');
+                        doc.addImage(pressureImg, 'PNG', 20, yPos + 5, 170, 80);
+                        yPos += 95;
+                    } catch (e) {
+                        doc.setFontSize(10);
+                        doc.text('Pressure chart could not be included.', 20, yPos + 15);
+                        yPos += 25;
+                    }
+
+                    if (yPos > 250) { doc.addPage(); yPos = 20; }
+                    doc.setFontSize(14);
+                    doc.text('Cyclone Location Map', 20, yPos);
+                    try {
+                        const mapImg = await new Promise((resolve, reject) => {
+                            if (markersRef.current.length > 0) {
+                                mapInstanceRef.current.setView(markersRef.current[markersRef.current.length - 1].getLatLng(), 5);
+                            }
+                            setTimeout(() => {
+                                leafletImage(mapInstanceRef.current, (err, canvas) => {
+                                    if (err) reject(err);
+                                    else resolve(canvas.toDataURL('image/png'));
+                                });
+                            }, 500);
+                        });
+                        doc.addImage(mapImg, 'PNG', 20, yPos + 5, 170, 80);
+                        yPos += 85;
+                    } catch (err) {
+                        doc.setFontSize(10);
+                        doc.text('Map image could not be included.', 20, yPos + 15);
+                        yPos += 20;
+                    }
+
+                    if (yPos > 250) { doc.addPage(); yPos = 20; }
+                    doc.setFontSize(10);
+                    doc.text('Generated by Tropical Cyclone Wind Speed Prediction Tool', 105, yPos + 10, { align: 'center' });
+                    doc.save(`Cyclone_Prediction_Report_${date.replace(/, /g, '_')}.pdf`);
+                } catch (error) {
+                    console.error('Error generating PDF:', error);
+                    alert('Failed to generate the report. Please try again.');
+                }
+            };
+
+            const handleInputChange = (e) => {
+                setInputs({ ...inputs, [e.target.name]: e.target.value });
+            };
+
+            return (
+                <div className="relative min-h-screen">
+                    <button
+                        onClick={toggleTheme}
+                        className="theme-toggle bg-gradient-to-r from-teal-400 to-blue-500 hover:from-blue-500 hover:to-teal-400 text-white p-3 rounded-full shadow-lg transition-all duration-300"
+                        title={theme === 'night' ? 'Switch to Day Mode' : 'Switch to Night Mode'}
+                    >
+                        {theme === 'night' ? (
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                            </svg>
+                        ) : (
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path>
+                            </svg>
+                        )}
+                    </button>
+                    <div className="container mx-auto p-6">
+                        {riskLevel === 'HIGH' && (
+                            <div className={`mb-6 rounded-2xl border px-6 py-4 shadow-xl ${theme === 'night' ? 'border-red-500/60 bg-red-950/70 text-red-100' : 'border-red-300 bg-red-100 text-red-700'}`}>
+                                <p className="font-bold">High Risk Alert</p>
+                                <p className="mt-1">A severe flood risk is predicted in your area. Please take immediate precautions.</p>
+                            </div>
+                        )}
+                        <div className="flex items-center justify-center mb-8">
+                            <svg className="w-12 h-12 text-teal-400 mr-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                            </svg>
+                            <h1 className={`text-4xl font-bold text-center ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'} drop-shadow-lg`}>
+                                Tropical Cyclone Dashboard
+                            </h1>
+                        </div>
+                        <div className="flex justify-end mb-6">
+                            <button
+                                onClick={() => setIsAdminMode(!isAdminMode)}
+                                className="bg-gradient-to-r from-slate-500 to-cyan-600 hover:from-cyan-600 hover:to-slate-500 text-white px-5 py-2 rounded-lg shadow-md transition-all duration-300"
+                            >
+                                {isAdminMode ? 'Switch to User Mode' : 'Switch to Admin Mode'}
+                            </button>
+                        </div>
+                        <div className="dashboard-frame">
+                            <div className="panel p-8 rounded-2xl shadow-2xl">
+                                <div className="flex items-center mb-6">
+                                    <svg className="w-8 h-8 text-teal-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                    </svg>
+                                    <h2 className={`text-2xl font-semibold ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>Input Parameters</h2>
+                                </div>
+                                {[
+                                    { id: 'international_number_id', label: 'International Number ID', tooltip: 'Unique identifier for the cyclone' },
+                                    { id: 'tropical_cyclone_number', label: 'Tropical Cyclone Number', tooltip: 'Cyclone number in the season' },
+                                    { id: 'tropical_cyclone_end_record', label: 'Tropical Cyclone End Record', tooltip: 'Record number at cyclone dissipation' },
+                                    { id: 'number_of_hours', label: 'Hours between Paths', tooltip: 'Time interval between observations (hours)' },
+                                    { id: 'grade', label: 'Grade', tooltip: 'Cyclone intensity grade (e.g., 1-5)' },
+                                    { id: 'latitude', label: 'Latitude', tooltip: 'Latitude of cyclone center (-90 to 90)' },
+                                    { id: 'longitude', label: 'Longitude', tooltip: 'Longitude of cyclone center (-180 to 180)' },
+                                    { id: 'minimum_central_pressure', label: 'Min Central Pressure', tooltip: 'Pressure at cyclone center (hPa)' }
+                                ].map(field => (
+                                    <div key={field.id} className="input-container relative mb-4 group">
+                                        <label htmlFor={field.id} className={`block font-medium mb-1 ${theme === 'night' ? 'text-gray-300' : 'text-blue-900'} transition-colors duration-300`}>
+                                            {field.label}
+                                            <span className="absolute invisible group-hover:visible bg-gray-900 text-white text-xs rounded py-1 px-2 -top-8 left-1/2 transform -translate-x-1/2 z-10">
+                                                {field.tooltip}
+                                            </span>
+                                        </label>
+                                        <div className="relative">
+                                            <svg className={`absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                            </svg>
+                                            <input
+                                                type="number"
+                                                step="any"
+                                                id={field.id}
+                                                name={field.id}
+                                                value={inputs[field.id]}
+                                                onChange={handleInputChange}
+                                                className={`w-full pl-10 p-3 border-2 ${theme === 'night' ? 'border-teal-500 bg-gray-800 text-gray-200' : 'border-blue-500 bg-white text-blue-900'} rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-400 transition-all duration-300`}
+                                                required
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+                                <button
+                                    onClick={predict}
+                                    className="w-full bg-gradient-to-r from-teal-400 to-blue-500 hover:from-blue-500 hover:to-teal-400 text-white py-3 rounded-lg shadow-md hover:shadow-xl transition-all duration-300"
+                                >
+                                    Predict
+                                </button>
+                                <button
+                                    onClick={resetAll}
+                                    className="w-full mt-3 bg-gradient-to-r from-red-400 to-pink-500 hover:from-pink-500 hover:to-red-400 text-white py-3 rounded-lg shadow-md hover:shadow-xl transition-all duration-300"
+                                >
+                                    Reset All
+                                </button>
+                                {error && <p className={`text-center mt-4 ${theme === 'night' ? 'text-red-400' : 'text-red-600'} font-semibold`}>{error}</p>}
+                                {prediction && <p className={`text-center mt-4 font-bold ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>{prediction}</p>}
+                                {predictionMetrics && (
+                                    <div className={`mt-4 p-4 rounded-lg ${theme === 'night' ? 'bg-gray-800/80' : 'bg-blue-50/80'}`}>
+                                        <p className={`font-semibold ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>AI Prediction Summary</p>
+                                        <p className={theme === 'night' ? 'text-gray-200' : 'text-blue-900'}>Prediction: {predictionMetrics.prediction.toFixed(1)} knots</p>
+                                        <p className={theme === 'night' ? 'text-gray-200' : 'text-blue-900'}>Flood Level: {predictionMetrics.floodLevel.toFixed(1)}</p>
+                                        <p className={theme === 'night' ? 'text-gray-200' : 'text-blue-900'}>Confidence: {predictionMetrics.confidence.toFixed(1)}%</p>
+                                    </div>
+                                )}
+                                <div className={`mt-6 p-4 rounded-lg ${theme === 'night' ? 'bg-gray-800/80' : 'bg-blue-50/80'}`}>
+                                    <p className={`font-semibold mb-3 ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>Damage Reporting</p>
+                                    <input
+                                        type="text"
+                                        value={damageReport.location}
+                                        onChange={(e) => setDamageReport({ ...damageReport, location: e.target.value })}
+                                        placeholder="Location"
+                                        className={`w-full mb-3 p-3 border-2 ${theme === 'night' ? 'border-teal-500 bg-gray-900 text-gray-200' : 'border-blue-500 bg-white text-blue-900'} rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-400 transition-all duration-300`}
+                                    />
+                                    <textarea
+                                        value={damageReport.description}
+                                        onChange={(e) => setDamageReport({ ...damageReport, description: e.target.value })}
+                                        placeholder="Description"
+                                        rows="3"
+                                        className={`w-full mb-3 p-3 border-2 ${theme === 'night' ? 'border-teal-500 bg-gray-900 text-gray-200' : 'border-blue-500 bg-white text-blue-900'} rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-400 transition-all duration-300`}
+                                    />
+                                    <button
+                                        onClick={submitDamageReport}
+                                        className="w-full bg-gradient-to-r from-emerald-400 to-green-500 hover:from-green-500 hover:to-emerald-400 text-white py-3 rounded-lg shadow-md transition-all duration-300"
+                                    >
+                                        Submit Report
+                                    </button>
+                                    {damageReportMessage && <p className={`mt-3 text-sm font-medium ${theme === 'night' ? 'text-gray-200' : 'text-blue-900'}`}>{damageReportMessage}</p>}
+                                </div>
+                            </div>
+                            <div className="panel p-8 rounded-2xl shadow-2xl">
+                                <h2 className={`text-2xl font-semibold mb-4 ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>Cyclone Location</h2>
+                                <div id="map" ref={mapRef}></div>
+                                <div className="flex flex-wrap gap-4 mt-4 justify-center">
+                                    <select
+                                        value={mapLayer}
+                                        onChange={(e) => changeMapLayer(e.target.value)}
+                                        className={`p-3 border-2 ${theme === 'night' ? 'border-teal-500 bg-gray-800 text-gray-200' : 'border-blue-500 bg-white text-blue-900'} rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-400 transition-all duration-300`}
+                                    >
+                                        <option value="street">Street Map</option>
+                                        <option value="satellite">Satellite</option>
+                                        <option value="terrain">Terrain</option>
+                                    </select>
+                                    <button
+                                        onClick={zoomToLatestCyclone}
+                                        className="bg-gradient-to-r from-teal-400 to-blue-500 hover:from-blue-500 hover:to-teal-400 text-white px-6 py-3 rounded-lg shadow-md hover:shadow-xl transition-all duration-300"
+                                    >
+                                        Zoom to Latest
+                                    </button>
+                                    <button
+                                        onClick={animateCyclonePath}
+                                        className="bg-gradient-to-r from-teal-400 to-blue-500 hover:from-blue-500 hover:to-teal-400 text-white px-6 py-3 rounded-lg shadow-md hover:shadow-xl transition-all duration-300"
+                                    >
+                                        Animate Path
+                                    </button>
+                                </div>
+                                <p className={`text-center mt-4 ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>{coords}</p>
+                                <p className={`text-center mt-2 ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>{pathDistance}</p>
+                                {cycloneInfo.display && (
+                                    <div className={`mt-4 p-4 rounded-lg ${theme === 'night' ? 'bg-gray-800/80' : 'bg-blue-50/80'}`}>
+                                        <p className={`font-semibold ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>Selected Cyclone</p>
+                                        <p className={theme === 'night' ? 'text-gray-200' : 'text-blue-900'}>Wind Speed: {cycloneInfo.windSpeed}</p>
+                                        <p className={theme === 'night' ? 'text-gray-200' : 'text-blue-900'}>Pressure: {cycloneInfo.pressure}</p>
+                                        <p className={theme === 'night' ? 'text-gray-200' : 'text-blue-900'}>Grade: {cycloneInfo.grade}</p>
+                                        <p className={theme === 'night' ? 'text-gray-200' : 'text-blue-900'}>Location: {cycloneInfo.location}</p>
+                                    </div>
+                                )}
+                                <div className={`mt-4 p-4 rounded-lg ${theme === 'night' ? 'bg-gray-800/80' : 'bg-blue-50/80'}`}>
+                                    <p className={`font-semibold mb-3 ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>Shelter Locator</p>
+                                    {shelters.map((shelter) => (
+                                        <div key={shelter.name} className={`flex justify-between py-2 border-b ${theme === 'night' ? 'border-gray-700 text-gray-200' : 'border-blue-100 text-blue-900'}`}>
+                                            <span>{shelter.name}</span>
+                                            <span>{shelter.city}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className={`mt-4 p-4 rounded-lg ${theme === 'night' ? 'bg-gray-800/80' : 'bg-blue-50/80'}`}>
+                                    <p className={`font-semibold mb-3 ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>Disaster History</p>
+                                    {disasterHistoryData.map((event) => (
+                                        <div key={event.event} className="mb-3">
+                                            <p className={`font-medium ${theme === 'night' ? 'text-gray-100' : 'text-blue-900'}`}>{event.event}</p>
+                                            <p className={`text-sm ${theme === 'night' ? 'text-gray-300' : 'text-blue-800'}`}>{event.date}</p>
+                                            <p className={`text-sm ${theme === 'night' ? 'text-gray-400' : 'text-blue-700'}`}>{event.impact}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="panel p-8 rounded-2xl shadow-2xl">
+                                <h2 className={`text-2xl font-semibold mb-4 ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>Prediction Insights</h2>
+                                {fallbackMessage && (
+                                    <div className={`mb-4 p-3 rounded-lg ${theme === 'night' ? 'bg-amber-900/50 text-amber-100' : 'bg-amber-100 text-amber-700'}`}>
+                                        {fallbackMessage}
+                                    </div>
+                                )}
+                                <div className="mb-6">
+                                    <h3 className={`text-lg font-medium ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>Hyperlocal Risk Level</h3>
+                                    <p className={`text-2xl font-bold ${getRiskClass(riskLevel)}`}>{riskLevel}</p>
+                                    <p className={`mt-1 text-sm ${theme === 'night' ? 'text-gray-300' : 'text-blue-800'}`}>Last updated: {lastUpdated}</p>
+                                </div>
+                                <div className="mb-6">
+                                    <h3 className={`text-lg font-medium ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>Wind Speed Trend</h3>
+                                    <canvas id="windSpeedChart"></canvas>
+                                </div>
+                                <div className="mb-6">
+                                    <h3 className={`text-lg font-medium ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>Pressure Comparison</h3>
+                                    <canvas id="pressureChart"></canvas>
+                                </div>
+                                <div className={`mb-6 p-4 rounded-lg ${theme === 'night' ? 'bg-gray-800/80' : 'bg-blue-50/80'}`}>
+                                    <h3 className={`text-lg font-medium mb-2 ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>Farmer Advisory</h3>
+                                    <p className={theme === 'night' ? 'text-gray-200' : 'text-blue-900'}>{getFarmerAdvisory(riskLevel)}</p>
+                                </div>
+                                {isAdminMode && (
+                                    <div className={`mb-6 p-4 rounded-lg ${theme === 'night' ? 'bg-gray-800/80' : 'bg-blue-50/80'}`}>
+                                        <h3 className={`text-lg font-medium mb-2 ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>Admin Dashboard</h3>
+                                        <p className={theme === 'night' ? 'text-gray-200' : 'text-blue-900'}>Stored predictions: {history.length}</p>
+                                        <p className={theme === 'night' ? 'text-gray-200' : 'text-blue-900'}>Simulation interval: 12 seconds</p>
+                                        <p className={theme === 'night' ? 'text-gray-200' : 'text-blue-900'}>Fallback mode: {fallbackMessage ? 'Active' : 'Inactive'}</p>
+                                    </div>
+                                )}
+                                <div className={`mb-6 p-4 rounded-lg ${theme === 'night' ? 'bg-gray-800/80' : 'bg-blue-50/80'}`}>
+                                    <h3 className={`text-lg font-medium mb-3 ${theme === 'night' ? 'text-teal-400' : 'text-blue-800'}`}>AI Chat Assistant</h3>
+                                    <div className="max-h-40 overflow-y-auto mb-3 space-y-2">
+                                        {chatMessages.map((message, index) => (
+                                            <div key={`${message.sender}-${index}`} className={`p-2 rounded-lg ${message.sender === 'assistant'
+                                                ? (theme === 'night' ? 'bg-slate-700 text-gray-100' : 'bg-white text-blue-900')
+                                                : (theme === 'night' ? 'bg-teal-900/60 text-teal-100' : 'bg-cyan-100 text-blue-900')} whitespace-pre-line`}>
+                                                {message.text}
+                                            </div>
+                                        ))}
+                                        {chatLoading && (
+                                            <div className={`p-2 rounded-lg ${theme === 'night' ? 'bg-slate-700 text-gray-100' : 'bg-white text-blue-900'}`}>
+                                                Thinking...
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={chatInput}
+                                            onChange={(e) => setChatInput(e.target.value)}
+                                            placeholder="Ask the assistant..."
+                                            className={`flex-1 p-3 border-2 ${theme === 'night' ? 'border-teal-500 bg-gray-900 text-gray-200' : 'border-blue-500 bg-white text-blue-900'} rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-400 transition-all duration-300`}
+                                        />
+                                        <button
+                                            onClick={sendChatMessage}
+                                            className="bg-gradient-to-r from-teal-400 to-blue-500 hover:from-blue-500 hover:to-teal-400 text-white px-4 rounded-lg shadow-md transition-all duration-300"
+                                        >
+                                            Send
+                                        </button>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={downloadReport}
+                                    className="w-full bg-gradient-to-r from-green-400 to-lime-500 hover:from-lime-500 hover:to-green-400 text-white py-3 rounded-lg shadow-md hover:shadow-xl transition-all duration-300"
+                                >
+                                    Download Report
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<CycloneDashboard />, document.getElementById('root'));
+    </script>
+    {% include 'predictor/footer.html' %}
+</body>
+</html>
